@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>كشف الروضة - GitHub Edition</title>
+    <style>
+        :root { --primary: #24292e; --accent: #2ea44f; --bg: #f6f8fa; --text: #24292e; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 10px; direction: rtl; }
+        .container { max-width: 600px; margin: auto; }
+        .card { background: white; border: 1px solid #d1d5da; border-radius: 8px; padding: 15px; margin-bottom: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        h2, h3 { margin-top: 0; color: var(--primary); }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #d1d5da; border-radius: 6px; box-sizing: border-box; font-size: 16px; }
+        .btn { background: var(--accent); color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; font-size: 16px; }
+        .btn:active { opacity: 0.8; }
+        .status { font-size: 13px; color: #586069; text-align: center; margin-bottom: 10px; padding: 5px; border-radius: 4px; }
+        .cust-item { display: flex; justify-content: space-between; align-items: center; padding: 15px; border-bottom: 1px solid #e1e4e8; cursor: pointer; background: white; transition: 0.2s; }
+        .cust-item:last-child { border-bottom: none; }
+        .cust-item:hover { background: #f9f9f9; }
+        .bal-box { font-size: 14px; }
+        .y-txt { color: #d73a49; } /* أحمر لليمني */
+        .s-txt { color: #005cc5; } /* أزرق للسعودي */
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+        th, td { border: 1px solid #e1e4e8; padding: 10px; text-align: center; }
+        th { background: #f6f8fa; }
+        #main-app, #details-screen { display: none; }
+        .back-btn { background: #6a737d; margin-bottom: 15px; width: auto; padding: 8px 15px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div id="status" class="status">🔄 جاري الاتصال بـ GitHub...</div>
+
+    <div id="main-app">
+        <div class="card">
+            <h3>👤 إضافة عميل</h3>
+            <input type="text" id="custName" placeholder="اسم العميل الكامل">
+            <button class="btn" onclick="addCustomer()">حفظ في السحابة</button>
+        </div>
+        <div class="card" style="padding:0;">
+            <div id="customer-list"></div>
+        </div>
+    </div>
+
+    <div id="details-screen">
+        <button class="btn back-btn" onclick="showMain()">← رجوع</button>
+        <div class="card">
+            <h2 id="det-name" style="margin-bottom:5px;"></h2>
+            <div style="display: flex; justify-content: space-around; font-weight: bold;">
+                <div class="y-txt">يمني: <span id="y-bal">0</span></div>
+                <div class="s-txt">سعودي: <span id="s-bal">0</span></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h4>➕ عملية جديدة</h4>
+            <input type="text" id="opDesc" placeholder="البيان (مثلاً: سلفة، سداد...)">
+            <input type="number" id="opAmt" placeholder="المبلغ">
+            <select id="opCurr">
+                <option value="Y">ريال يمني</option>
+                <option value="S">ريال سعودي</option>
+            </select>
+            <select id="opType">
+                <option value="plus">عليه (+)</option>
+                <option value="minus">له (-)</option>
+            </select>
+            <button class="btn" onclick="addTransaction()">إضافة العملية</button>
+        </div>
+
+        <div class="card" style="padding:0; overflow-x:auto;">
+            <table id="opTable">
+                <thead>
+                    <tr>
+                        <th>البيان</th>
+                        <th>المبلغ</th>
+                        <th>العملة</th>
+                        <th>الحالة</th>
+                    </tr>
+                </thead>
+                <tbody id="opBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    // --- إعدادات الحساب الخاصة بك ---
+    const CONFIG = {
+        TOKEN: "Ghp_L1Lzc0hdT7mUa0hdTF5VCf1OjxtWvO38eG5H",
+        USER: "feras456ahmed-dot",
+        REPO: "kashf-db",
+        FILE: "data.json"
+    };
+
+    let customers = [];
+    let currentSHA = "";
+    let currentId = null;
+
+    // جلب البيانات عند البداية
+    async function loadData() {
+        updateStatus("🔄 جاري تحديث البيانات...", "#586069");
+        try {
+            const url = `https://api.github.com/repos/${CONFIG.USER}/${CONFIG.REPO}/contents/${CONFIG.FILE}`;
+            const res = await fetch(url, {
+                headers: { "Authorization": `token ${CONFIG.TOKEN}` }
+            });
+            
+            if (res.ok) {
+                const data = await res.json();
+                currentSHA = data.sha;
+                customers = JSON.parse(decodeURIComponent(escape(atob(data.content))));
+                renderList();
+                updateStatus("✅ البيانات متزامنة", "#2ea44f");
+            } else {
+                updateStatus("❌ تأكد من وجود ملف data.json في المستودع", "#d73a49");
+            }
+        } catch (e) {
+            updateStatus("❌ خطأ في الاتصال بالإنترنت", "#d73a49");
+        }
+    }
+
+    // حفظ البيانات في GitHub
+    async function saveData() {
+        updateStatus("⏳ جاري الرفع لـ GitHub...", "#0366d6");
+        try {
+            const url = `https://api.github.com/repos/${CONFIG.USER}/${CONFIG.REPO}/contents/${CONFIG.FILE}`;
+            const content = btoa(unescape(encodeURIComponent(JSON.stringify(customers))));
+            
+            const res = await fetch(url, {
+                method: "PUT",
+                headers: { 
+                    "Authorization": `token ${CONFIG.TOKEN}`,
+                    "Content-Type": "application/json" 
+                },
+                body: JSON.stringify({
+                    message: "تحديث قاعدة البيانات",
+                    content: content,
+                    sha: currentSHA
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                currentSHA = data.content.sha;
+                updateStatus("✅ تم الحفظ بنجاح", "#2ea44f");
+            } else {
+                updateStatus("❌ فشل الحفظ.. حاول مجدداً", "#d73a49");
+            }
+        } catch (e) {
+            updateStatus("❌ خطأ أثناء الحفظ", "#d73a49");
+        }
+    }
+
+    function renderList() {
+        const list = document.getElementById('customer-list');
+        list.innerHTML = customers.map(c => `
+            <div class="cust-item" onclick='showDetails(${c.id})'>
+                <div><strong>${c.name}</strong></div>
+                <div class="bal-box">
+                    <span class="y-txt">ي: ${c.y_bal}</span> | 
+                    <span class="s-txt">س: ${c.s_bal}</span>
+                </div>
+            </div>
+        `).join('');
+        document.getElementById('main-app').style.display = 'block';
+    }
+
+    function addCustomer() {
+        const nameInput = document.getElementById('custName');
+        if (!nameInput.value) return;
+        
+        const newCust = {
+            id: Date.now(),
+            name: nameInput.value,
+            y_bal: 0,
+            s_bal: 0,
+            transactions: []
+        };
+        
+        customers.push(newCust);
+        renderList();
+        saveData();
+        nameInput.value = "";
+    }
+
+    function showDetails(id) {
+        currentId = id;
+        const c = customers.find(x => x.id === id);
+        document.getElementById('main-app').style.display = 'none';
+        document.getElementById('details-screen').style.display = 'block';
+        document.getElementById('det-name').innerText = c.name;
+        renderOps(c);
+    }
+
+    function showMain() {
+        document.getElementById('main-app').style.display = 'block';
+        document.getElementById('details-screen').style.display = 'none';
+        renderList();
+    }
+
+    function addTransaction() {
+        const c = customers.find(x => x.id === currentId);
+        const desc = document.getElementById('opDesc').value || "بدون بيان";
+        const amt = parseFloat(document.getElementById('opAmt').value) || 0;
+        const curr = document.getElementById('opCurr').value;
+        const type = document.getElementById('opType').value;
+
+        if (amt <= 0) return;
+
+        const change = type === 'plus' ? amt : -amt;
+        if (curr === 'Y') c.y_bal += change; else c.s_bal += change;
+        
+        c.transactions.unshift({ 
+            desc, 
+            amt, 
+            curr, 
+            type, 
+            date: new Date().toLocaleDateString('ar-YE') 
+        });
+
+        renderOps(c);
+        saveData();
+        
+        document.getElementById('opDesc').value = "";
+        document.getElementById('opAmt').value = "";
+    }
+
+    function renderOps(c) {
+        document.getElementById('y-bal').innerText = c.y_bal;
+        document.getElementById('s-bal').innerText = c.s_bal;
+        const body = document.getElementById('opBody');
+        body.innerHTML = c.transactions.map(t => `
+            <tr>
+                <td>${t.desc}</td>
+                <td style="font-weight:bold;">${t.amt}</td>
+                <td>${t.curr === 'Y' ? 'يمني' : 'سعودي'}</td>
+                <td style="color:${t.type==='plus'?'red':'green'}">${t.type==='plus'?'عليه':'له'}</td>
+            </tr>
+        `).join('');
+    }
+
+    function updateStatus(text, color) {
+        const s = document.getElementById('status');
+        s.innerText = text;
+        s.style.backgroundColor = color + "22"; // لون خلفية شفاف
+        s.style.color = color;
+    }
+
+    // تشغيل الجلب عند فتح الصفحة
+    loadData();
+</script>
+
+</body>
+</html>
